@@ -11,6 +11,16 @@ const ATTMARK_URL = "https://attendance-management-system-fronte-two.vercel.app"
 const EMAIL = "tester@gmail.com";
 const PASSWORD = "123";
 
+app.get("/", (req, res) => {
+  res.json({ 
+    message: "Attendance Automation Server is running",
+    endpoints: {
+      simulate: "/simulate",
+      health: "/health"
+    }
+  });
+});
+
 app.get("/simulate", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
