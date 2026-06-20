@@ -4,7 +4,14 @@ import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
 
 const app = express();
-app.use(cors());
+
+// Configure CORS properly
+app.use(cors({
+  origin: ['https://attendance-management-system-fronte-two.vercel.app', 'http://localhost:3000', 'http://localhost:5173'],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true
+}));
+
 app.use(express.json());
 
 const ATTMARK_URL = "https://attendance-management-system-fronte-two.vercel.app";
@@ -18,10 +25,13 @@ app.get("/simulate", async (req, res) => {
   const connectionId = Date.now().toString();
   let isStopped = false;
   
+  // Set SSE headers
   res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.setHeader("Access-Control-Allow-Origin", "https://attendance-management-system-fronte-two.vercel.app");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
 
   const send = (msg) => {
     if (!isStopped) {
@@ -32,7 +42,6 @@ app.get("/simulate", async (req, res) => {
   const sendShot = async (page, label) => {
     if (isStopped) return null;
     try {
-      // Wait a bit for UI to settle before screenshot
       await new Promise((r) => setTimeout(r, 500));
       const buf = await page.screenshot({ type: "jpeg", quality: 75, fullPage: false });
       res.write(`data: ${JSON.stringify({ screenshot: buf.toString("base64"), label })}\n\n`);
@@ -109,15 +118,11 @@ app.get("/simulate", async (req, res) => {
     if (isStopped) throw new Error("STOPPED");
     send("Selecting course and class schedule...");
     
-    // Wait for and select course dropdown
     send("Selecting course: Mathematics MATH101...");
     try {
-      // Try to find and select the course from dropdown
       await page.waitForSelector('select, [role="combobox"], .select, .dropdown', { timeout: 5000 });
       
-      // Try to select the course using various methods
       await page.evaluate(() => {
-        // Try select element first
         const selects = Array.from(document.querySelectorAll('select'));
         for (const select of selects) {
           const options = Array.from(select.options);
@@ -131,16 +136,6 @@ app.get("/simulate", async (req, res) => {
             return;
           }
         }
-        
-        // Try clicking elements that might be dropdown triggers
-        const dropdowns = Array.from(document.querySelectorAll('[role="combobox"], .select-trigger, .dropdown-trigger'));
-        for (const dropdown of dropdowns) {
-          if (dropdown.textContent.toLowerCase().includes('math') || 
-              dropdown.textContent.toLowerCase().includes('course')) {
-            dropdown.click();
-            break;
-          }
-        }
       });
       
       send("Course selected: Mathematics MATH101");
@@ -150,11 +145,9 @@ app.get("/simulate", async (req, res) => {
     
     await new Promise((r) => setTimeout(r, 1000));
     
-    // Wait for and select class schedule
     send("Selecting class schedule: Monday 09:00-10:30...");
     try {
       await page.evaluate(() => {
-        // Try select element first
         const selects = Array.from(document.querySelectorAll('select'));
         for (const select of selects) {
           const options = Array.from(select.options);
@@ -167,16 +160,6 @@ app.get("/simulate", async (req, res) => {
             select.dispatchEvent(new Event('change', { bubbles: true }));
             return;
           }
-        }
-        
-        // Try clicking schedule elements
-        const allElements = Array.from(document.querySelectorAll('*'));
-        const scheduleEl = allElements.find(el => 
-          el.textContent.toLowerCase().includes('monday') && 
-          el.textContent.toLowerCase().includes('09:00')
-        );
-        if (scheduleEl) {
-          scheduleEl.click();
         }
       });
       
@@ -192,17 +175,13 @@ app.get("/simulate", async (req, res) => {
     if (isStopped) throw new Error("STOPPED");
     send("Clicking View Attendance button...");
     
-    // Try multiple approaches to find and click the View Attendance button
-    const viewClicked = await page.evaluate(() => {
+    await page.evaluate(() => {
       const allButtons = Array.from(document.querySelectorAll("button, a, [role='button']"));
-      
-      // Try exact match first
       let btn = allButtons.find(b => 
         b.textContent.toLowerCase().trim() === "view attendance" ||
         b.textContent.toLowerCase().trim() === "view"
       );
       
-      // Try partial match
       if (!btn) {
         btn = allButtons.find(b => 
           b.textContent.toLowerCase().includes("view attendance") ||
@@ -210,62 +189,22 @@ app.get("/simulate", async (req, res) => {
         );
       }
       
-      if (btn) {
-        btn.click();
-        return true;
-      }
-      return false;
+      if (btn) btn.click();
     });
     
-    if (!viewClicked) {
-      // If button not found, try clicking any element that looks clickable near "View Attendance" text
-      await page.evaluate(() => {
-        const elements = Array.from(document.querySelectorAll("*"));
-        const viewText = elements.find(el => {
-          const text = el.textContent.toLowerCase().trim();
-          return text === "view attendance" || text === "view";
-        });
-        
-        if (viewText) {
-          // Click the element itself or its parent
-          if (viewText.tagName === "BUTTON" || viewText.tagName === "A") {
-            viewText.click();
-          } else {
-            viewText.closest("button, a, [role='button'], [onclick]")?.click();
-          }
-        }
-      });
-    }
-    
-    // Wait for page to update after clicking View Attendance
     send("Waiting for attendance list to load...");
-    
-    // Wait for network to be idle and UI to update
     await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {
       send("Page didn't navigate, waiting for UI update...");
     });
     
-    // Extra wait to ensure the attendance list renders
     await new Promise((r) => setTimeout(r, 3000));
-    
-    // Check if attendance list or table appeared
-    const hasAttendanceList = await page.evaluate(() => {
-      return document.querySelector('table, [class*="attendance"], [class*="list"], [class*="table"]') !== null;
-    });
-    
-    if (hasAttendanceList) {
-      send("Attendance list loaded successfully!");
-      await sendShot(page, "Attendance list view");
-    } else {
-      send("View Attendance clicked, waiting for content...");
-      await sendShot(page, "After View Attendance click");
-    }
+    await sendShot(page, "Attendance list view");
+    send("Attendance list loaded successfully!");
 
     // ── STEP 5: Click Create Attendance ─────────────────────────────
     if (isStopped) throw new Error("STOPPED");
     send("Looking for Create Attendance button...");
     
-    // Wait longer and try to find the button with retries
     let createBtnFound = false;
     for (let i = 0; i < 5; i++) {
       createBtnFound = await page.evaluate(() => {
@@ -284,7 +223,7 @@ app.get("/simulate", async (req, res) => {
     
     if (!createBtnFound) {
       await sendShot(page, "Debug - Create Attendance button not found");
-      throw new Error("Could not find Create Attendance button after multiple attempts");
+      throw new Error("Could not find Create Attendance button");
     }
     
     send("Clicking Create Attendance button...");
@@ -297,25 +236,22 @@ app.get("/simulate", async (req, res) => {
       if (btn) btn.click();
     });
     
-    // Wait for dropdown with 3 options to appear (Manual, QR, RFID)
     send("Waiting for attendance options dropdown...");
     await new Promise((r) => setTimeout(r, 1500));
     await sendShot(page, "Create Attendance dropdown with options");
 
-    // ── STEP 6: Select Manual Attendance (First Option) ───────────
+    // ── STEP 6: Select Manual Attendance ──────────────────────────
     if (isStopped) throw new Error("STOPPED");
     send("Selecting Manual Attendance (first option)...");
     
-    // Wait for manual attendance option with retries
     let manualFound = false;
     for (let i = 0; i < 5; i++) {
-      // Check for manual attendance text in the dropdown
       manualFound = await page.evaluate(() => {
         const allElements = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div, span, p"));
         const manualOption = allElements.find(e => 
           e.textContent.toLowerCase().includes("manual") && 
           e.offsetParent !== null &&
-          e.textContent.length < 100 // Avoid matching large containers
+          e.textContent.length < 100
         );
         return manualOption !== undefined;
       });
@@ -335,10 +271,7 @@ app.get("/simulate", async (req, res) => {
         );
         
         if (candidates.length > 0) {
-          // Sort by text length - shortest is usually the most specific
           candidates.sort((a, b) => a.textContent.length - b.textContent.length);
-          
-          // Try to click the element, if not clickable, click its parent
           const target = candidates[0];
           if (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "LI") {
             target.click();
@@ -348,22 +281,19 @@ app.get("/simulate", async (req, res) => {
         }
       });
       
-      // Wait for modal to appear after clicking Manual Attendance
       send("Waiting for Manual Attendance modal to open...");
       await new Promise((r) => setTimeout(r, 2000));
       await sendShot(page, "Manual Attendance modal opened");
       send("Manual Attendance modal is now open!");
     } else {
-      send("⚠️ Could not find Manual Attendance option. Taking screenshot of current state...");
       await sendShot(page, "Manual Attendance option not found");
-      throw new Error("Manual Attendance option not found in dropdown");
+      throw new Error("Manual Attendance option not found");
     }
 
-    // ── STEP 7: Click Mark Bulk Attendance inside the modal ───────
+    // ── STEP 7: Click Mark Bulk Attendance ────────────────────────
     if (isStopped) throw new Error("STOPPED");
     send("Looking for Mark Bulk Attendance button inside the modal...");
     
-    // Wait for bulk button with retries - it's inside the modal
     let bulkFound = false;
     for (let i = 0; i < 5; i++) {
       bulkFound = await page.evaluate(() => {
@@ -388,49 +318,59 @@ app.get("/simulate", async (req, res) => {
           b.textContent.toLowerCase().includes("bulk") &&
           b.offsetParent !== null
         );
-        if (bulkBtn) {
-          bulkBtn.click();
-        }
+        if (bulkBtn) bulkBtn.click();
       });
       
-      // Wait for student list to load in the bulk attendance view
-      send("Waiting for student list to load in bulk attendance view...");
+      send("Waiting for bulk attendance view to fully load...");
+      await new Promise((r) => setTimeout(r, 3000));
+      await sendShot(page, "Bulk Attendance view loaded");
       
-      // Wait for checkboxes with timeout
-      try {
-        await page.waitForFunction(() => {
-          return document.querySelectorAll('input[type="checkbox"]').length > 1;
-        }, { timeout: 15000 });
+      const stats = await page.evaluate(() => {
+        const inputCheckboxes = document.querySelectorAll('input[type="checkbox"]');
+        const customCheckboxes = document.querySelectorAll('[role="checkbox"], [class*="checkbox"], [class*="check"]');
+        const studentRows = document.querySelectorAll('[class*="student"], [class*="row"], [class*="card"], tr, li');
         
-        await new Promise((r) => setTimeout(r, 1500));
-        await sendShot(page, "Bulk Attendance view with student list");
+        const allElements = Array.from(document.querySelectorAll('*'));
+        const rollPatterns = allElements.filter(el => /25FA-\d{3}-ST/i.test(el.textContent));
         
-        const checkboxCount = await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length);
-        send(`Found ${checkboxCount} student checkboxes in the list`);
-        send("✅ Bulk Attendance view opened successfully with all students!");
-      } catch (e) {
-        send("⚠️ Could not find student checkboxes, but bulk view should be open");
-        await sendShot(page, "Bulk Attendance view (no checkboxes found)");
+        const rollNumbers = new Set();
+        rollPatterns.forEach(el => {
+          const matches = el.textContent.match(/25FA-\d{3}-ST/gi);
+          if (matches) matches.forEach(m => rollNumbers.add(m));
+        });
+        
+        return {
+          inputCheckboxes: inputCheckboxes.length,
+          customCheckboxes: customCheckboxes.length,
+          studentRows: studentRows.length,
+          uniqueRollNumbers: rollNumbers.size,
+          rollNumbers: Array.from(rollNumbers)
+        };
+      });
+      
+      send(`Bulk Attendance View Stats:`);
+      send(`  - Standard checkboxes: ${stats.inputCheckboxes}`);
+      send(`  - Custom checkboxes/check elements: ${stats.customCheckboxes}`);
+      send(`  - Student rows/cards detected: ${stats.studentRows}`);
+      send(`  - Unique roll numbers found: ${stats.uniqueRollNumbers}`);
+      
+      if (stats.rollNumbers.length > 0) {
+        send(`  - Sample roll numbers: ${stats.rollNumbers.slice(0, 5).join(', ')}`);
       }
       
-      send("✅ Automation completed! Stopping at Bulk Attendance view as requested.");
-    } else {
-      send("⚠️ Mark Bulk Attendance button not found in the modal");
-      send("Taking screenshot of the modal to help debug...");
-      await sendShot(page, "Manual Attendance modal - Bulk button not found");
+      send("✅ Bulk Attendance view opened successfully!");
+      await sendShot(page, "Bulk Attendance - Final View");
       
-      // Log all button texts for debugging
+    } else {
       const allButtons = await page.evaluate(() => {
         return Array.from(document.querySelectorAll("button, a, [role='button']"))
           .map(b => b.textContent.trim())
           .filter(text => text.length > 0);
       });
       send(`Available buttons in modal: ${JSON.stringify(allButtons)}`);
+      await sendShot(page, "Manual Attendance modal - Bulk button not found");
     }
 
-    // Take final screenshot
-    await sendShot(page, "Final State");
-    
     res.write(`data: ${JSON.stringify({ done: true, success: true })}\n\n`);
   } catch (err) {
     if (err.message === "STOPPED") {
@@ -457,8 +397,9 @@ app.get("/simulate", async (req, res) => {
   }
 });
 
-// Endpoint to stop automation
 app.post("/stop", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "https://attendance-management-system-fronte-two.vercel.app");
+  
   const connectionId = req.body.connectionId;
   if (connectionId && activeConnections.has(connectionId)) {
     const connection = activeConnections.get(connectionId);
@@ -466,14 +407,26 @@ app.post("/stop", (req, res) => {
     activeConnections.delete(connectionId);
     res.json({ success: true, message: "Automation stopped" });
   } else {
-    // Stop all active connections
     activeConnections.forEach((connection) => connection.stop());
     activeConnections.clear();
     res.json({ success: true, message: "All automations stopped" });
   }
 });
 
-app.get("/health", (_, res) => res.json({ status: "ok", awake: true }));
+// Health endpoint with proper CORS headers
+app.get("/health", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "https://attendance-management-system-fronte-two.vercel.app");
+  res.json({ status: "ok", awake: true });
+});
+
+// Handle OPTIONS preflight
+app.options("*", (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "https://attendance-management-system-fronte-two.vercel.app");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.sendStatus(200);
+});
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Automation server running on port ${PORT}`));
