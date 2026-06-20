@@ -67,131 +67,17 @@ app.get("/simulate", async (req, res) => {
 
     // ── STEP 2: Go to Manage Attendance ───────────────────────────
     send("Navigating to Manage Attendance...");
-    await page.evaluate(() => {
-      const links = Array.from(document.querySelectorAll("a, [role='link'], nav li, .nav-item"));
-      const link = links.find((el) => el.textContent.toLowerCase().includes("manage attendance") ||
-        el.textContent.toLowerCase().includes("attendance"));
-      if (link) link.click();
-    });
-    await new Promise((r) => setTimeout(r, 2000));
-
-    // fallback: try direct URL patterns
-    const currentUrl = page.url();
-    if (!currentUrl.includes("attendance")) {
-      const possiblePaths = ["/teacher/attendance", "/manage-attendance", "/attendance", "/teacher/manage"];
-      for (const path of possiblePaths) {
-        await page.goto(`${ATTMARK_URL}${path}`, { waitUntil: "networkidle2", timeout: 10000 }).catch(() => {});
-        if (!page.url().includes("login") && !page.url().includes("auth")) break;
-      }
-    }
+    await page.goto(`${ATTMARK_URL}/teacher/attendance`, { waitUntil: "networkidle2", timeout: 20000 });
+    await new Promise((r) => setTimeout(r, 1000));
 
     await sendShot(page, "Manage Attendance page");
     send("On Manage Attendance page!");
 
-    // ── STEP 3: Select Subject ─────────────────────────────────────
-    send("Selecting subject (Mathematics MATH101)...");
-    await new Promise((r) => setTimeout(r, 1500));
-
-    // Try to find and open the subject/course selector modal or dropdown
-    await page.evaluate(() => {
-      // Click any button that opens course/subject selection
-      const btns = Array.from(document.querySelectorAll("button, [role='button']"));
-      const btn = btns.find((b) =>
-        b.textContent.toLowerCase().includes("select") ||
-        b.textContent.toLowerCase().includes("course") ||
-        b.textContent.toLowerCase().includes("subject") ||
-        b.textContent.toLowerCase().includes("view attendance")
-      );
-      if (btn) btn.click();
-    });
-    await new Promise((r) => setTimeout(r, 1500));
-    await sendShot(page, "Course selection modal");
-
-    // Select subject dropdown
-    send("Choosing Mathematics MATH101...");
-    const subjectSelected = await page.evaluate(() => {
-      const selects = Array.from(document.querySelectorAll("select"));
-      for (const sel of selects) {
-        const opts = Array.from(sel.options);
-        const opt = opts.find((o) =>
-          o.text.toLowerCase().includes("math") ||
-          o.text.toLowerCase().includes("mathematics")
-        );
-        if (opt) {
-          sel.value = opt.value;
-          sel.dispatchEvent(new Event("change", { bubbles: true }));
-          return true;
-        }
-      }
-      // Also try React-style dropdowns
-      const divs = Array.from(document.querySelectorAll("[class*='select'], [class*='dropdown'], [role='combobox'], [role='listbox']"));
-      for (const div of divs) {
-        if (div.textContent.toLowerCase().includes("subject") || div.textContent.toLowerCase().includes("select subject")) {
-          div.click();
-          return "clicked-div";
-        }
-      }
-      return false;
-    });
-
-    await new Promise((r) => setTimeout(r, 1000));
-
-    // If React dropdown opened, pick Mathematics option
-    if (subjectSelected === "clicked-div") {
-      await page.evaluate(() => {
-        const opts = Array.from(document.querySelectorAll("[role='option'], li, [class*='option']"));
-        const opt = opts.find((o) => o.textContent.toLowerCase().includes("math"));
-        if (opt) opt.click();
-      });
-      await new Promise((r) => setTimeout(r, 800));
-    }
-
-    // Select schedule
-    send("Selecting schedule (Monday 09:00-10:30)...");
-    await page.evaluate(() => {
-      const selects = Array.from(document.querySelectorAll("select"));
-      for (const sel of selects) {
-        const opts = Array.from(sel.options);
-        const opt = opts.find((o) =>
-          o.text.toLowerCase().includes("monday") ||
-          o.text.toLowerCase().includes("09:00")
-        );
-        if (opt) {
-          sel.value = opt.value;
-          sel.dispatchEvent(new Event("change", { bubbles: true }));
-          return true;
-        }
-      }
-      const divs = Array.from(document.querySelectorAll("[class*='select'], [class*='dropdown'], [role='combobox']"));
-      for (const div of divs) {
-        if (div.textContent.toLowerCase().includes("schedule") || div.textContent.toLowerCase().includes("select schedule")) {
-          div.click();
-          return true;
-        }
-      }
-    });
-
-    await new Promise((r) => setTimeout(r, 1000));
-    await page.evaluate(() => {
-      const opts = Array.from(document.querySelectorAll("[role='option'], li, [class*='option']"));
-      const opt = opts.find((o) => o.textContent.toLowerCase().includes("monday") || o.textContent.includes("09:00"));
-      if (opt) opt.click();
-    });
-
-    await new Promise((r) => setTimeout(r, 800));
-    await sendShot(page, "Subject & Schedule selected");
-
-    // ── STEP 4: Click View Attendance ──────────────────────────────
-    send("Clicking View Attendance...");
-    await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll("button"));
-      const btn = btns.find((b) => b.textContent.toLowerCase().includes("view attendance"));
-      if (btn) btn.click();
-    });
-    await new Promise((r) => setTimeout(r, 2500));
+    // ── STEP 3: Confirm Subject & Schedule (already defaulted on page load) ─
+    send("Mathematics MATH101, Monday 09:00-10:30 already selected (default).");
     await sendShot(page, "Attendance list view");
 
-    // ── STEP 5: Click Create Attendance ───────────────────────────
+    // ── STEP 4: Click Create Attendance ─────────────────────────────
     send("Clicking Create Attendance...");
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button"));
@@ -201,7 +87,7 @@ app.get("/simulate", async (req, res) => {
     await new Promise((r) => setTimeout(r, 1200));
     await sendShot(page, "Create Attendance dropdown");
 
-    // ── STEP 6: Select Manual Attendance ──────────────────────────
+    // ── STEP 5: Select Manual Attendance ──────────────────────────
     send("Selecting Manual Attendance...");
     await page.evaluate(() => {
       const els = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div"));
@@ -212,7 +98,7 @@ app.get("/simulate", async (req, res) => {
     await new Promise((r) => setTimeout(r, 1200));
     await sendShot(page, "Manual Attendance modal");
 
-    // ── STEP 7: Click Mark Bulk Attendance ────────────────────────
+    // ── STEP 6: Click Mark Bulk Attendance ────────────────────────
     send("Clicking Mark Bulk Attendance...");
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button"));
@@ -222,35 +108,62 @@ app.get("/simulate", async (req, res) => {
     await new Promise((r) => setTimeout(r, 1500));
     await sendShot(page, "Bulk Attendance modal");
 
-    // ── STEP 8: Select 3-4 students ───────────────────────────────
+    // Debug: dump how many checkboxes exist on the page right now
+    const checkboxCount = await page.evaluate(() =>
+      document.querySelectorAll('input[type="checkbox"]').length
+    );
+    send(`Found ${checkboxCount} checkboxes on page`);
+
+    // ── STEP 7: Select 3-4 students ───────────────────────────────
     send("Selecting students...");
     const targetRolls = ["25FA-002-ST", "25FA-003-ST", "25FA-005-ST", "25FA-008-ST"];
 
     for (const roll of targetRolls) {
       const clicked = await page.evaluate((rollNo) => {
-        // Find student card/checkbox by roll number text
+        // Find any element whose text CONTAINS the roll number (not exact match)
         const allEls = Array.from(document.querySelectorAll("*"));
-        const rollEl = allEls.find((el) =>
-          el.children.length === 0 &&
-          el.textContent.trim() === rollNo
-        );
-        if (rollEl) {
-          // Click the parent card
-          const card = rollEl.closest("[class*='card'], [class*='item'], [class*='student'], li, label");
-          if (card) { card.click(); return true; }
-          rollEl.parentElement?.click();
-          return true;
+        const rollEl = allEls.find((el) => {
+          const ownText = Array.from(el.childNodes)
+            .filter((n) => n.nodeType === Node.TEXT_NODE)
+            .map((n) => n.textContent.trim())
+            .join("");
+          return ownText.includes(rollNo) || el.textContent.trim() === rollNo;
+        });
+
+        if (!rollEl) return { ok: false, reason: "roll text not found" };
+
+        // Walk up to find the clickable card/row container (max 6 levels)
+        let card = rollEl;
+        for (let i = 0; i < 6; i++) {
+          if (!card.parentElement) break;
+          card = card.parentElement;
+          const checkbox = card.querySelector('input[type="checkbox"]');
+          if (checkbox) {
+            // Click checkbox directly — most reliable for React controlled inputs
+            checkbox.click();
+            // Also dispatch change event in case onClick isn't enough
+            checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+            return { ok: true, via: "checkbox" };
+          }
         }
-        return false;
+
+        // Fallback: click the roll element's closest labeled/clickable ancestor
+        const clickableCard = rollEl.closest("[role='button'], label, li, [class*='card']");
+        if (clickableCard) {
+          clickableCard.click();
+          return { ok: true, via: "card-click" };
+        }
+
+        return { ok: false, reason: "no checkbox or clickable ancestor found" };
       }, roll);
 
-      send(`${clicked ? "✓" : "✗"} ${roll}`);
-      await new Promise((r) => setTimeout(r, 500));
+      send(`${clicked.ok ? "✓" : "✗"} ${roll}${clicked.ok ? ` (${clicked.via})` : ` — ${clicked.reason}`}`);
+      await new Promise((r) => setTimeout(r, 600));
     }
 
     await sendShot(page, "Students selected");
 
-    // ── STEP 9: Click Mark Attendance ─────────────────────────────
+    // ── STEP 8: Click Mark Attendance ─────────────────────────────
     send("Clicking Mark Attendance button...");
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button"));
