@@ -107,15 +107,94 @@ app.get("/simulate", async (req, res) => {
 
     // ── STEP 3: Select Subject & Schedule ─────────────────────────
     if (isStopped) throw new Error("STOPPED");
-    send("Mathematics MATH101, Monday 09:00-10:30 already selected (default).");
+    send("Selecting course and class schedule...");
     
+    // Wait for and select course dropdown
+    send("Selecting course: Mathematics MATH101...");
+    try {
+      // Try to find and select the course from dropdown
+      await page.waitForSelector('select, [role="combobox"], .select, .dropdown', { timeout: 5000 });
+      
+      // Try to select the course using various methods
+      await page.evaluate(() => {
+        // Try select element first
+        const selects = Array.from(document.querySelectorAll('select'));
+        for (const select of selects) {
+          const options = Array.from(select.options);
+          const mathOption = options.find(opt => 
+            opt.text.toLowerCase().includes('math') || 
+            opt.text.toLowerCase().includes('math101')
+          );
+          if (mathOption) {
+            select.value = mathOption.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            return;
+          }
+        }
+        
+        // Try clicking elements that might be dropdown triggers
+        const dropdowns = Array.from(document.querySelectorAll('[role="combobox"], .select-trigger, .dropdown-trigger'));
+        for (const dropdown of dropdowns) {
+          if (dropdown.textContent.toLowerCase().includes('math') || 
+              dropdown.textContent.toLowerCase().includes('course')) {
+            dropdown.click();
+            break;
+          }
+        }
+      });
+      
+      send("Course selected: Mathematics MATH101");
+    } catch (e) {
+      send("Course may already be selected or using default value");
+    }
+    
+    await new Promise((r) => setTimeout(r, 1000));
+    
+    // Wait for and select class schedule
+    send("Selecting class schedule: Monday 09:00-10:30...");
+    try {
+      await page.evaluate(() => {
+        // Try select element first
+        const selects = Array.from(document.querySelectorAll('select'));
+        for (const select of selects) {
+          const options = Array.from(select.options);
+          const scheduleOption = options.find(opt => 
+            opt.text.toLowerCase().includes('monday') || 
+            opt.text.toLowerCase().includes('09:00')
+          );
+          if (scheduleOption) {
+            select.value = scheduleOption.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            return;
+          }
+        }
+        
+        // Try clicking schedule elements
+        const allElements = Array.from(document.querySelectorAll('*'));
+        const scheduleEl = allElements.find(el => 
+          el.textContent.toLowerCase().includes('monday') && 
+          el.textContent.toLowerCase().includes('09:00')
+        );
+        if (scheduleEl) {
+          scheduleEl.click();
+        }
+      });
+      
+      send("Schedule selected: Monday 09:00-10:30");
+    } catch (e) {
+      send("Schedule may already be selected or using default value");
+    }
+    
+    await new Promise((r) => setTimeout(r, 1000));
+    await sendShot(page, "Subject and Schedule selected");
+
     // ── STEP 4: Click View Attendance ──────────────────────────────
     if (isStopped) throw new Error("STOPPED");
-    send("Clicking View Attendance...");
+    send("Clicking View Attendance button...");
     
     // Try multiple approaches to find and click the View Attendance button
     const viewClicked = await page.evaluate(() => {
-      const allButtons = Array.from(document.querySelectorAll("button"));
+      const allButtons = Array.from(document.querySelectorAll("button, a, [role='button']"));
       
       // Try exact match first
       let btn = allButtons.find(b => 
@@ -128,14 +207,6 @@ app.get("/simulate", async (req, res) => {
         btn = allButtons.find(b => 
           b.textContent.toLowerCase().includes("view attendance") ||
           b.textContent.toLowerCase().includes("view")
-        );
-      }
-      
-      // Try finding by onclick or other attributes
-      if (!btn) {
-        btn = allButtons.find(b => 
-          b.getAttribute("onclick")?.toLowerCase().includes("view") ||
-          b.className?.toLowerCase().includes("view")
         );
       }
       
@@ -166,10 +237,30 @@ app.get("/simulate", async (req, res) => {
       });
     }
     
-    // Wait for attendance list to load
-    await new Promise((r) => setTimeout(r, 2000));
-    await sendShot(page, "Attendance list view");
-    send("Attendance list loaded!");
+    // Wait for page to update after clicking View Attendance
+    send("Waiting for attendance list to load...");
+    
+    // Wait for network to be idle and UI to update
+    await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {
+      // If waitForNavigation fails, just wait for some time
+      send("Page didn't navigate, waiting for UI update...");
+    });
+    
+    // Extra wait to ensure the attendance list renders
+    await new Promise((r) => setTimeout(r, 3000));
+    
+    // Check if attendance list or table appeared
+    const hasAttendanceList = await page.evaluate(() => {
+      return document.querySelector('table, [class*="attendance"], [class*="list"], [class*="table"]') !== null;
+    });
+    
+    if (hasAttendanceList) {
+      send("Attendance list loaded successfully!");
+      await sendShot(page, "Attendance list view");
+    } else {
+      send("View Attendance clicked, waiting for content...");
+      await sendShot(page, "After View Attendance click");
+    }
 
     // ── STEP 5: Click Create Attendance ─────────────────────────────
     if (isStopped) throw new Error("STOPPED");
@@ -179,7 +270,7 @@ app.get("/simulate", async (req, res) => {
     let createBtnFound = false;
     for (let i = 0; i < 5; i++) {
       createBtnFound = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll("button"));
+        const btns = Array.from(document.querySelectorAll("button, a, [role='button']"));
         const btn = btns.find(b => 
           b.textContent.toLowerCase().includes("create attendance") ||
           b.textContent.toLowerCase().includes("create")
@@ -200,7 +291,7 @@ app.get("/simulate", async (req, res) => {
     
     send("Clicking Create Attendance...");
     await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll("button"));
+      const btns = Array.from(document.querySelectorAll("button, a, [role='button']"));
       const btn = btns.find(b => 
         b.textContent.toLowerCase().includes("create attendance") ||
         b.textContent.toLowerCase().includes("create")
