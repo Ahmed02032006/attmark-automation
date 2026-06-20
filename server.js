@@ -177,77 +177,14 @@ app.get("/simulate", async (req, res) => {
     
     await new Promise((r) => setTimeout(r, 1000));
     await sendShot(page, "Bulk Attendance modal");
-    
+
     const checkboxCount = await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length);
     send(`Found ${checkboxCount} checkboxes on page`);
+    send("✅ Bulk Attendance modal opened successfully. Stopping here as requested.");
 
-    // ── STEP 7: Select 3-4 students ───────────────────────────────
-    if (isStopped) throw new Error("STOPPED");
-    send("Selecting students...");
-    const targetRolls = ["25FA-002-ST", "25FA-003-ST", "25FA-005-ST", "25FA-008-ST"];
-
-    for (const roll of targetRolls) {
-      if (isStopped) throw new Error("STOPPED");
-      
-      const clicked = await page.evaluate((rollNo) => {
-        const allEls = Array.from(document.querySelectorAll("*"));
-        const rollEl = allEls.find((el) => {
-          const ownText = Array.from(el.childNodes)
-            .filter((n) => n.nodeType === Node.TEXT_NODE)
-            .map((n) => n.textContent.trim())
-            .join("");
-          return ownText.includes(rollNo) || el.textContent.trim() === rollNo;
-        });
-
-        if (!rollEl) return { ok: false, reason: "roll text not found" };
-
-        let card = rollEl;
-        for (let i = 0; i < 6; i++) {
-          if (!card.parentElement) break;
-          card = card.parentElement;
-          const checkbox = card.querySelector('input[type="checkbox"]');
-          if (checkbox) {
-            if (!checkbox.checked) {
-              checkbox.click();
-              checkbox.dispatchEvent(new Event("change", { bubbles: true }));
-            }
-            return { ok: true, via: "checkbox" };
-          }
-        }
-
-        const clickableCard = rollEl.closest("[role='button'], label, li, [class*='card']");
-        if (clickableCard) {
-          clickableCard.click();
-          return { ok: true, via: "card-click" };
-        }
-
-        return { ok: false, reason: "no checkbox or clickable ancestor found" };
-      }, roll);
-
-      send(`${clicked.ok ? "✓" : "✗"} ${roll}${clicked.ok ? ` (${clicked.via})` : ` — ${clicked.reason}`}`);
-      await new Promise((r) => setTimeout(r, 600));
-    }
-
-    await sendShot(page, "Students selected");
-
-    // ── STEP 8: Click Mark Attendance ─────────────────────────────
-    if (isStopped) throw new Error("STOPPED");
-    send("Clicking Mark Attendance button...");
+    // Take final screenshot of the bulk attendance modal
+    await sendShot(page, "Bulk Attendance - Final State");
     
-    await page.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll("button"));
-      const btn = btns.find((b) =>
-        b.textContent.toLowerCase().includes("mark attendance") &&
-        !b.textContent.toLowerCase().includes("bulk")
-      );
-      if (btn) btn.click();
-    });
-    
-    // Wait for success message or page update
-    await new Promise((r) => setTimeout(r, 2000));
-    await sendShot(page, "Attendance marked!");
-
-    send("✅ Done! Attendance marked successfully.");
     res.write(`data: ${JSON.stringify({ done: true, success: true })}\n\n`);
   } catch (err) {
     if (err.message === "STOPPED") {
