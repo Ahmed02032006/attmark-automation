@@ -11,16 +11,6 @@ const ATTMARK_URL = "https://attendance-management-system-fronte-two.vercel.app"
 const EMAIL = "tester@gmail.com";
 const PASSWORD = "123";
 
-app.get("/", (req, res) => {
-  res.json({ 
-    message: "Attendance Automation Server is running",
-    endpoints: {
-      simulate: "/simulate",
-      health: "/health"
-    }
-  });
-});
-
 app.get("/simulate", async (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -32,7 +22,7 @@ app.get("/simulate", async (req, res) => {
     try {
       const buf = await page.screenshot({ type: "jpeg", quality: 75, fullPage: false });
       res.write(`data: ${JSON.stringify({ screenshot: buf.toString("base64"), label })}\n\n`);
-    } catch (_) { }
+    } catch (_) {}
   };
 
   let browser;
@@ -90,7 +80,7 @@ app.get("/simulate", async (req, res) => {
     if (!currentUrl.includes("attendance")) {
       const possiblePaths = ["/teacher/attendance", "/manage-attendance", "/attendance", "/teacher/manage"];
       for (const path of possiblePaths) {
-        await page.goto(`${ATTMARK_URL}${path}`, { waitUntil: "networkidle2", timeout: 10000 }).catch(() => { });
+        await page.goto(`${ATTMARK_URL}${path}`, { waitUntil: "networkidle2", timeout: 10000 }).catch(() => {});
         if (!page.url().includes("login") && !page.url().includes("auth")) break;
       }
     }
@@ -283,7 +273,7 @@ app.get("/simulate", async (req, res) => {
         return p ? await p.screenshot({ type: "jpeg", quality: 60 }) : null;
       });
       if (buf) res.write(`data: ${JSON.stringify({ screenshot: buf.toString("base64"), label: "Error state" })}\n\n`);
-    } catch (_) { }
+    } catch (_) {}
     res.write(`data: ${JSON.stringify({ done: true, success: false })}\n\n`);
   } finally {
     if (browser) await browser.close();
@@ -291,7 +281,7 @@ app.get("/simulate", async (req, res) => {
   }
 });
 
-app.get("/health", (_, res) => res.json({ status: "ok" }));
+app.get("/health", (_, res) => res.json({ status: "ok", awake: true }));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Automation server running on port ${PORT}`));
