@@ -84,18 +84,37 @@ app.get("/simulate", async (req, res) => {
       const btn = btns.find((b) => b.textContent.toLowerCase().includes("create attendance"));
       if (btn) btn.click();
     });
-    await new Promise((r) => setTimeout(r, 1200));
+
+    // Wait for the dropdown menu to actually appear
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll("button, li, div")).some(
+        (el) => el.textContent.toLowerCase().includes("manual attendance")
+      ),
+      { timeout: 8000 }
+    ).catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
     await sendShot(page, "Create Attendance dropdown");
 
     // ── STEP 5: Select Manual Attendance ──────────────────────────
     send("Selecting Manual Attendance...");
     await page.evaluate(() => {
-      const els = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div"));
-      const el = els.find((e) => e.textContent.toLowerCase().includes("manual attendance") ||
-        (e.textContent.toLowerCase().includes("manual") && e.textContent.toLowerCase().includes("attendance")));
-      if (el) el.click();
+      // Prefer the smallest/most specific element containing the text (innermost match)
+      const candidates = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div"))
+        .filter((e) => e.textContent.toLowerCase().includes("manual attendance"));
+      if (candidates.length === 0) return;
+      // Sort by text length ascending — the most specific element has the shortest matching text
+      candidates.sort((a, b) => a.textContent.length - b.textContent.length);
+      candidates[0].click();
     });
-    await new Promise((r) => setTimeout(r, 1200));
+
+    // Wait for the Manual Attendance modal (roll number input) to appear
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll("input")).some(
+        (i) => (i.placeholder || "").toLowerCase().includes("roll")
+      ),
+      { timeout: 8000 }
+    ).catch(() => {});
+    await new Promise((r) => setTimeout(r, 400));
     await sendShot(page, "Manual Attendance modal");
 
     // ── STEP 6: Click Mark Bulk Attendance ────────────────────────
@@ -105,13 +124,20 @@ app.get("/simulate", async (req, res) => {
       const btn = btns.find((b) => b.textContent.toLowerCase().includes("bulk"));
       if (btn) btn.click();
     });
-    await new Promise((r) => setTimeout(r, 1500));
-    await sendShot(page, "Bulk Attendance modal");
 
-    // Debug: dump how many checkboxes exist on the page right now
-    const checkboxCount = await page.evaluate(() =>
-      document.querySelectorAll('input[type="checkbox"]').length
-    );
+    // Wait for the bulk modal to actually render checkboxes (poll up to 10s)
+    send("Waiting for student list to load...");
+    let checkboxCount = 0;
+    const pollStart = Date.now();
+    while (Date.now() - pollStart < 10000) {
+      checkboxCount = await page.evaluate(
+        () => document.querySelectorAll('input[type="checkbox"]').length
+      );
+      if (checkboxCount > 1) break; // >1 to skip just "Select All"
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    await sendShot(page, "Bulk Attendance modal");
     send(`Found ${checkboxCount} checkboxes on page`);
 
     // ── STEP 7: Select 3-4 students ───────────────────────────────
