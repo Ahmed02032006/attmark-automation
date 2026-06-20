@@ -242,7 +242,6 @@ app.get("/simulate", async (req, res) => {
     
     // Wait for network to be idle and UI to update
     await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {
-      // If waitForNavigation fails, just wait for some time
       send("Page didn't navigate, waiting for UI update...");
     });
     
@@ -284,12 +283,11 @@ app.get("/simulate", async (req, res) => {
     }
     
     if (!createBtnFound) {
-      // Take a screenshot to debug
       await sendShot(page, "Debug - Create Attendance button not found");
       throw new Error("Could not find Create Attendance button after multiple attempts");
     }
     
-    send("Clicking Create Attendance...");
+    send("Clicking Create Attendance button...");
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button, a, [role='button']"));
       const btn = btns.find(b => 
@@ -299,98 +297,135 @@ app.get("/simulate", async (req, res) => {
       if (btn) btn.click();
     });
     
-    // Wait for dropdown to appear
+    // Wait for dropdown with 3 options to appear (Manual, QR, RFID)
+    send("Waiting for attendance options dropdown...");
     await new Promise((r) => setTimeout(r, 1500));
-    await sendShot(page, "Create Attendance dropdown");
+    await sendShot(page, "Create Attendance dropdown with options");
 
-    // ── STEP 6: Select Manual Attendance ──────────────────────────
+    // ── STEP 6: Select Manual Attendance (First Option) ───────────
     if (isStopped) throw new Error("STOPPED");
-    send("Selecting Manual Attendance...");
+    send("Selecting Manual Attendance (first option)...");
     
     // Wait for manual attendance option with retries
     let manualFound = false;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
+      // Check for manual attendance text in the dropdown
       manualFound = await page.evaluate(() => {
-        return Array.from(document.querySelectorAll("button, li, [role='menuitem'], div"))
-          .some(e => e.textContent.toLowerCase().includes("manual attendance") && e.offsetParent !== null);
+        const allElements = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div, span, p"));
+        const manualOption = allElements.find(e => 
+          e.textContent.toLowerCase().includes("manual") && 
+          e.offsetParent !== null &&
+          e.textContent.length < 100 // Avoid matching large containers
+        );
+        return manualOption !== undefined;
       });
       
       if (manualFound) break;
       await new Promise((r) => setTimeout(r, 1000));
+      send(`Waiting for Manual Attendance option... (attempt ${i + 2}/5)`);
     }
     
     if (manualFound) {
+      send("Found Manual Attendance option, clicking...");
       await page.evaluate(() => {
-        const candidates = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div"))
-          .filter((e) => e.textContent.toLowerCase().includes("manual attendance"));
-        if (candidates.length === 0) return;
-        candidates.sort((a, b) => a.textContent.length - b.textContent.length);
-        candidates[0].click();
-      });
-    } else {
-      send("Manual Attendance option not found, trying alternative approaches...");
-      // Try clicking any element that might be the manual attendance option
-      await page.evaluate(() => {
-        const allElements = Array.from(document.querySelectorAll("*"));
-        const manualEl = allElements.find(el => 
-          el.textContent.toLowerCase().includes("manual") &&
-          el.offsetParent !== null
+        const allElements = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div, span, p"));
+        const candidates = allElements.filter(e => 
+          e.textContent.toLowerCase().includes("manual") &&
+          e.textContent.length < 100
         );
-        if (manualEl) {
-          manualEl.click();
+        
+        if (candidates.length > 0) {
+          // Sort by text length - shortest is usually the most specific
+          candidates.sort((a, b) => a.textContent.length - b.textContent.length);
+          
+          // Try to click the element, if not clickable, click its parent
+          const target = candidates[0];
+          if (target.tagName === "BUTTON" || target.tagName === "A" || target.tagName === "LI") {
+            target.click();
+          } else {
+            target.closest("button, a, li, [role='button'], [role='menuitem']")?.click();
+          }
         }
       });
+      
+      // Wait for modal to appear after clicking Manual Attendance
+      send("Waiting for Manual Attendance modal to open...");
+      await new Promise((r) => setTimeout(r, 2000));
+      await sendShot(page, "Manual Attendance modal opened");
+      send("Manual Attendance modal is now open!");
+    } else {
+      send("⚠️ Could not find Manual Attendance option. Taking screenshot of current state...");
+      await sendShot(page, "Manual Attendance option not found");
+      throw new Error("Manual Attendance option not found in dropdown");
     }
-    
-    // Wait for modal to appear
-    await new Promise((r) => setTimeout(r, 1500));
-    await sendShot(page, "Manual Attendance modal");
 
-    // ── STEP 7: Click Mark Bulk Attendance ────────────────────────
+    // ── STEP 7: Click Mark Bulk Attendance inside the modal ───────
     if (isStopped) throw new Error("STOPPED");
-    send("Clicking Mark Bulk Attendance...");
+    send("Looking for Mark Bulk Attendance button inside the modal...");
     
-    // Wait for bulk button with retries
+    // Wait for bulk button with retries - it's inside the modal
     let bulkFound = false;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       bulkFound = await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll("button"));
-        return btns.some(b => b.textContent.toLowerCase().includes("bulk") && b.offsetParent !== null);
+        const allButtons = Array.from(document.querySelectorAll("button, a, [role='button']"));
+        const bulkBtn = allButtons.find(b => 
+          b.textContent.toLowerCase().includes("bulk") && 
+          b.offsetParent !== null
+        );
+        return bulkBtn !== undefined;
       });
       
       if (bulkFound) break;
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 1500));
+      send(`Waiting for Mark Bulk Attendance button... (attempt ${i + 2}/5)`);
     }
     
     if (bulkFound) {
+      send("Found Mark Bulk Attendance button, clicking...");
       await page.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll("button"));
-        const btn = btns.find((b) => b.textContent.toLowerCase().includes("bulk"));
-        if (btn) btn.click();
+        const allButtons = Array.from(document.querySelectorAll("button, a, [role='button']"));
+        const bulkBtn = allButtons.find(b => 
+          b.textContent.toLowerCase().includes("bulk") &&
+          b.offsetParent !== null
+        );
+        if (bulkBtn) {
+          bulkBtn.click();
+        }
       });
       
-      // Wait for student list to load
-      send("Waiting for student list to load...");
+      // Wait for student list to load in the bulk attendance view
+      send("Waiting for student list to load in bulk attendance view...");
       
       // Wait for checkboxes with timeout
       try {
         await page.waitForFunction(() => {
           return document.querySelectorAll('input[type="checkbox"]').length > 1;
-        }, { timeout: 10000 });
+        }, { timeout: 15000 });
         
-        await new Promise((r) => setTimeout(r, 1000));
-        await sendShot(page, "Bulk Attendance modal");
+        await new Promise((r) => setTimeout(r, 1500));
+        await sendShot(page, "Bulk Attendance view with student list");
         
         const checkboxCount = await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length);
-        send(`Found ${checkboxCount} checkboxes on page`);
+        send(`Found ${checkboxCount} student checkboxes in the list`);
+        send("✅ Bulk Attendance view opened successfully with all students!");
       } catch (e) {
-        send("Could not find checkboxes, taking screenshot of current state...");
-        await sendShot(page, "Bulk Attendance - No checkboxes found");
+        send("⚠️ Could not find student checkboxes, but bulk view should be open");
+        await sendShot(page, "Bulk Attendance view (no checkboxes found)");
       }
       
-      send("✅ Bulk Attendance modal opened successfully. Stopping here as requested.");
+      send("✅ Automation completed! Stopping at Bulk Attendance view as requested.");
     } else {
-      send("⚠️ Mark Bulk Attendance button not found, stopping at Manual Attendance modal.");
+      send("⚠️ Mark Bulk Attendance button not found in the modal");
+      send("Taking screenshot of the modal to help debug...");
+      await sendShot(page, "Manual Attendance modal - Bulk button not found");
+      
+      // Log all button texts for debugging
+      const allButtons = await page.evaluate(() => {
+        return Array.from(document.querySelectorAll("button, a, [role='button']"))
+          .map(b => b.textContent.trim())
+          .filter(text => text.length > 0);
+      });
+      send(`Available buttons in modal: ${JSON.stringify(allButtons)}`);
     }
 
     // Take final screenshot
