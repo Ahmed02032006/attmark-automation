@@ -22,7 +22,32 @@ app.get("/simulate", async (req, res) => {
     try {
       const buf = await page.screenshot({ type: "jpeg", quality: 75, fullPage: false });
       res.write(`data: ${JSON.stringify({ screenshot: buf.toString("base64"), label })}\n\n`);
-    } catch (_) {}
+      return buf;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  // Waits until the page visually changes (compares screenshot byte length/hash),
+  // or until timeout — used after every click so we never screenshot a stale frame.
+  const quickHash = (buf) => {
+    if (!buf) return null;
+    let h = 0;
+    for (let i = 0; i < buf.length; i += 97) h = (h * 31 + buf[i]) >>> 0;
+    return `${buf.length}-${h}`;
+  };
+
+  const waitForVisualChange = async (page, beforeBuf, { timeout = 6000, interval = 250 } = {}) => {
+    const beforeHash = quickHash(beforeBuf);
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await new Promise((r) => setTimeout(r, interval));
+      try {
+        const buf = await page.screenshot({ type: "jpeg", quality: 50 });
+        if (quickHash(buf) !== beforeHash) return true;
+      } catch (_) {}
+    }
+    return false;
   };
 
   let browser;
@@ -79,24 +104,18 @@ app.get("/simulate", async (req, res) => {
 
     // ── STEP 4: Click Create Attendance ─────────────────────────────
     send("Clicking Create Attendance...");
+    const beforeCreateClick = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button"));
       const btn = btns.find((b) => b.textContent.toLowerCase().includes("create attendance"));
       if (btn) btn.click();
     });
-
-    // Wait for the dropdown menu to actually appear
-    await page.waitForFunction(
-      () => Array.from(document.querySelectorAll("button, li, div")).some(
-        (el) => el.textContent.toLowerCase().includes("manual attendance")
-      ),
-      { timeout: 8000 }
-    ).catch(() => {});
-    await new Promise((r) => setTimeout(r, 400));
+    await waitForVisualChange(page, beforeCreateClick);
     await sendShot(page, "Create Attendance dropdown");
 
     // ── STEP 5: Select Manual Attendance ──────────────────────────
     send("Selecting Manual Attendance...");
+    const beforeManualClick = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
     await page.evaluate(() => {
       // Prefer the smallest/most specific element containing the text (innermost match)
       const candidates = Array.from(document.querySelectorAll("button, li, [role='menuitem'], div"))
@@ -106,35 +125,26 @@ app.get("/simulate", async (req, res) => {
       candidates.sort((a, b) => a.textContent.length - b.textContent.length);
       candidates[0].click();
     });
-
-    // Wait for the Manual Attendance modal (roll number input) to appear
-    await page.waitForFunction(
-      () => Array.from(document.querySelectorAll("input")).some(
-        (i) => (i.placeholder || "").toLowerCase().includes("roll")
-      ),
-      { timeout: 8000 }
-    ).catch(() => {});
-    await new Promise((r) => setTimeout(r, 400));
+    await waitForVisualChange(page, beforeManualClick);
     await sendShot(page, "Manual Attendance modal");
 
     // ── STEP 6: Click Mark Bulk Attendance ────────────────────────
     send("Clicking Mark Bulk Attendance...");
+    const beforeBulkClick = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button"));
       const btn = btns.find((b) => b.textContent.toLowerCase().includes("bulk"));
       if (btn) btn.click();
     });
+    await waitForVisualChange(page, beforeBulkClick);
 
-    // Wait for the bulk modal to actually render checkboxes (poll up to 10s)
+    // Extra confirmation: poll until checkboxes actually populate (up to 6s more)
     send("Waiting for student list to load...");
-    let checkboxCount = 0;
+    let checkboxCount = await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length);
     const pollStart = Date.now();
-    while (Date.now() - pollStart < 10000) {
-      checkboxCount = await page.evaluate(
-        () => document.querySelectorAll('input[type="checkbox"]').length
-      );
-      if (checkboxCount > 1) break; // >1 to skip just "Select All"
-      await new Promise((r) => setTimeout(r, 400));
+    while (checkboxCount <= 1 && Date.now() - pollStart < 6000) {
+      await new Promise((r) => setTimeout(r, 300));
+      checkboxCount = await page.evaluate(() => document.querySelectorAll('input[type="checkbox"]').length);
     }
 
     await sendShot(page, "Bulk Attendance modal");
@@ -191,6 +201,7 @@ app.get("/simulate", async (req, res) => {
 
     // ── STEP 8: Click Mark Attendance ─────────────────────────────
     send("Clicking Mark Attendance button...");
+    const beforeSubmitClick = await page.screenshot({ type: "jpeg", quality: 50 }).catch(() => null);
     await page.evaluate(() => {
       const btns = Array.from(document.querySelectorAll("button"));
       const btn = btns.find((b) =>
@@ -199,7 +210,7 @@ app.get("/simulate", async (req, res) => {
       );
       if (btn) btn.click();
     });
-    await new Promise((r) => setTimeout(r, 2000));
+    await waitForVisualChange(page, beforeSubmitClick);
     await sendShot(page, "Attendance marked!");
 
     send("✅ Done! Attendance marked successfully.");
